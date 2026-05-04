@@ -1,0 +1,24 @@
+# Data
+/01_data/
+
+# Old files
+/@old/
+
+# Python environments
+/venv-felt/
+/.venv/
+/02_code/venv-felt/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log

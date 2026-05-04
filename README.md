@@ -1,116 +1,373 @@
-﻿# FELT-dataset
+# FELT dataset processing scripts
 
-## Download RAVDESS
+This repository contains the Python scripts used to generate the FELT facial-tracking outputs from the RAVDESS audiovisual video files. The pipeline runs Py-Feat on RAVDESS videos, checks missing values, filters and smooths selected tracking columns, generates visualization videos, and packages the final release archives.
 
-1. Visit RAVDESS [Zenodo page](https://zenodo.org/records/1188976).
-2. Under 'Files' section, you can download RAVDESS song videos (named from `Video_Song_Actor_01.zip` to `Video_Song_Actor_24.zip`) and/or speech videos (named from `Video_Speech_Actor_01.zip` to `Video_Speech_Actor_24.zip`).
-3. Unzip all of them to a folder. In the following steps and scripts, I will use `F:\RAVDESS\` to store all the videos.
-4. The folder structure after unzipping should looks like this:
-> 
-    F:\RAVDESS
-    ├─ Actor_01
-    ├─ Actor_02
-    ├─ Actor_03
-    ├─ Actor_04
-    ├─ Actor_05
-    ├─ Actor_06
-    ├─ Actor_07
-    ├─ Actor_08
-    ├─ Actor_09
-    ├─ Actor_10
-    ├─ Actor_11
-    ├─ Actor_12
-    ├─ Actor_13
-    ├─ Actor_14
-    ├─ Actor_15
-    ├─ Actor_16
-    ├─ Actor_17
-    ├─ Actor_18
-    ├─ Actor_19
-    ├─ Actor_20
-    ├─ Actor_21
-    ├─ Actor_22
-    ├─ Actor_23
-    └─ Actor_24
->
+The pipeline is non-destructive. It does not delete RAVDESS source files. It selectively processes only full audiovisual RAVDESS files whose filenames begin with `01-`. Video-only files beginning with `02-` and audio-only files beginning with `03-` are ignored during task construction.
 
-## Set up Py-Feat
+## Repository structure
 
-1. Create a virtual envirionment. Py-feat currently support up to Python 3.9 `python39 -m venv F:\feat-venv`
-2. Navigate to venv directory `cd F:\feat-venv`
-3. Activate the venv `.\Scripts\Activate.ps1`
-4. Install Py-feat `pip install py-feat`
-5. Install [PyTorch](https://pytorch.org/get-started/previous-versions/#linux-and-windows-9) `pip install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 --index-url https://download.pytorch.org/whl/cu121`
-6. Modify Py-feat Detector.py: At `F:\feat-venv\Lib\site-packages\feat\detector.py`, modify `detect_identity()` function's return value from `return self._convert_detector_output(facebox, face_embeddings.numpy())` to `return self._convert_detector_output(facebox, face_embeddings.detach().numpy())` 
+```text
+face-tracking-2024/
+├── 01_data/
+│   ├── 00_downloads/
+│   │   └── ravdess/
+│   ├── 01_input/
+│   │   ├── Actor_01/
+│   │   ├── Actor_02/
+│   │   └── ...
+│   └── 02_output/
+│       ├── 01_raw_motion/
+│       ├── 02_smoothed_motion/
+│       ├── 03_smoothed_video/
+│       ├── 04_release_archives/
+│       ├── logs/
+│       └── plots/
+└── 02_code/
+    └── src/
+        ├── 1_extract_raw_tracking.py
+        ├── 2_fill_missing_values.py
+        ├── 3_clean_signals.py
+        ├── 4_generate_au_videos.py
+        ├── 5_generate_landmark_videos.py
+        ├── 6_generate_overlay_videos.py
+        ├── tools/
+        │   ├── create_release_archives.py
+        │   ├── download_ravdess_archives.py
+        │   └── plot_raw_smooth.py
+        └── utils/
+            ├── __init__.py
+            ├── felt_paths.py
+            └── video_rendering.py
+```
 
-## Run scripts
+## RAVDESS input structure
 
-To start, navigate to venv directory `cd F:\feat-venv` and clone this repo `git clone https://github.com/harveyliao/Py-feat-RAVDESS.git F:\feat-venv\Py-feat-RAVDESS`
+Download and unzip the RAVDESS video archives so that actor folders are placed under:
 
-### (Optional) remove video-only files
+```text
+01_data/01_input/
+├── Actor_01/
+├── Actor_02/
+├── ...
+└── Actor_24/
+```
 
-Video-only files contain same graphical information as Audio-video files, removing them can reduce processing time by half.
+Each RAVDESS filename contains seven hyphen-separated fields:
 
-To remove video-only files, run `Py-feat-RAVDESS\src\utils\remove_video_only_files.py`
+```text
+modality-vocal_channel-emotion-intensity-statement-repetition-actor
+```
 
-### Step 1: Run Py-feat detector
+Relevant fields:
 
-Run `Py-feat-RAVDESS\src\1_run_py-feat_detector.py`, then select configuration by numbers in console. Default configuration is to process all files in `F:\RAVDESS` folder. 
+```text
+modality:      01 = full audiovisual, 02 = video-only, 03 = audio-only
+vocal channel: 01 = speech, 02 = song
+```
 
-You can find the logging file at `run_detector.log`. The Py-feat detection result is saved as CSV files under `F:\raw_motion` 
+The FELT extraction scripts process only full audiovisual speech/song files. Actor 18 has no song recordings in RAVDESS.
 
-### Step 2: Check NaN and interpolate
+## Downloading RAVDESS archives
 
-Run `Py-feat-RAVDESS\src\2_interpolate_motion.py`. 
+The helper script downloads the RAVDESS `Video_Speech_Actor_XX.zip` and `Video_Song_Actor_XX.zip` archives from Zenodo into:
 
-This script checks for NA/NaN values and fills them by propagating the last valid observation to next valid. You can find the logging file at `chech_null_and_interpolate.log`. The interpolated data will overwrite those files in `F:\raw_motion` that has NA/NaN.   
+```text
+01_data/00_downloads/ravdess/
+```
 
-### Step 3: Filter and smooth 
+Run:
 
-Run `Py-feat-RAVDESS\src\3_filter_and_smooth_data.py`
+```bash
+cd 02_code
+uv run python src/tools/download_ravdess_archives.py
+```
 
-Files in `F:\raw_motion` is filtered and smoothed, then saved to `F:\smoothed_motion`. You can find the logging file at `filter_and_smooth_data.log`
+The script skips the missing Actor 18 song archive and uses `.part` files during download so interrupted downloads are not mistaken for complete ZIP files.
 
-### Step 4: Visualization
+After downloading, unzip the actor archives into:
 
-Install required library `pip install imageio[ffmpeg]`
+```text
+01_data/01_input/
+```
 
-#### Change landmark in Overlay from white to blue
+## Python environment
 
-Modify file `F:\feat-venv\Lib\site-packages\feat\data.py`: In function `plot_detections()`, find the line `color = "w"` and change it to `color = "b"`, save the file. Now the line face will be drawn in blue in Overlay.
+This project uses `uv` for Python environment management.
 
-#### draw Overlay videos
+From the project root:
 
-This script draws an overlay over RAVDESS videos. The overlay contains landmarks, head pose, facebox.
+```bash
+cd 02_code
+uv sync
+```
 
-Run `Py-feat-RAVDESS\src\4_visualize_overlay.py`. It read from `F:\smoothed_motion` and save overlay videos to `F:\smoothed_video\Overlay\`. You can find the logging file at `draw_overlay.log`.
+Run scripts with:
 
-#### draw Landmark videos
+```bash
+uv run python src/<script_name>.py
+```
 
-This script produces videos containing landmarks and facebox, eliminating translational motion.
+Example:
 
-Run `Py-feat-RAVDESS\src\4_visualize_landmark.py`. It read from `F:\smoothed_motion` and save landmark videos to `F:\smoothed_video\Landmark\`. You can find the logging file at `draw_landmark.log`.
+```bash
+uv run python src/1_extract_raw_tracking.py
+```
 
-#### draw Action Units animation
+## Py-Feat local patches
 
-This script draw Action Units (AU) animations. Note that Py-feat was unable to generate video frames for AU animation for about 10% of the frames for all video. Scripts drops those blank frames to have a more consistent result. Frames dropped are spread evenly across the timeline.
+The original FELT processing environment used Py-Feat 0.6.2. Two local Py-Feat edits were used.
 
-Run `Py-feat-RAVDESS\src\4_visualize_AU.py`. It read from `F:\smoothed_motion` and save AU animation to `F:\smoothed_video\ActionUnit\`. You can find the logging file at `draw_au.log`.
+### 1. Identity tensor detach patch
 
+In the installed Py-Feat `detector.py`, modify the return statement inside `detect_identity()` from:
 
-## Project folder structure
+```python
+return self._convert_detector_output(facebox, face_embeddings.numpy())
+```
 
+to:
 
->
-    F:\
-    ├── RAVDESS                 # videos
-    ├── feat-venv               # venv
-    │   └── Py-feat-RAVDESS     # this repo
-    ├── raw_motion              # output of step 1, then interpolated at step 2
-    ├── smoothed_motion         # step 3 outputs
-    └── smoothed_video          # step 4 outputs
-        ├── ActionUnit          # action unit animation
-        ├── Landmark            # landmark videos
-        └── Overlay             # overlay videos
->
+```python
+return self._convert_detector_output(facebox, face_embeddings.detach().numpy())
+```
 
+This prevents the PyTorch runtime error:
+
+```text
+RuntimeError: Can't call numpy() on Tensor that requires grad.
+```
+
+### 2. Overlay landmark colour patch
+
+In the installed Py-Feat plotting code, the overlay landmark colour was changed from white to blue so landmarks remain visible over the original RAVDESS frames. In the installed Py-Feat `feat/data.py`, inside `plot_detections()`, change `color = "w"` to `color = "b"`.
+
+```python
+color = "w"
+```
+
+to:
+
+```python
+color = "b"
+```
+
+## Pipeline scripts
+
+Run the numbered scripts sequentially.
+
+### 1. Extract raw tracking
+
+```bash
+cd 02_code
+uv run python src/1_extract_raw_tracking.py
+```
+
+This runs Py-Feat on valid full audiovisual RAVDESS speech/song videos and writes raw CSV tracking files to:
+
+```text
+01_data/02_output/01_raw_motion/
+├── speech/
+│   ├── Actor_01/
+│   └── ...
+└── song/
+    ├── Actor_01/
+    └── ...
+```
+
+The script skips existing output files by default.
+
+### 2. Fill missing values
+
+```bash
+cd 02_code
+uv run python src/2_fill_missing_values.py
+```
+
+This checks raw tracking CSV files for null values and applies pandas forward-fill when needed. This stage modifies files in place under:
+
+```text
+01_data/02_output/01_raw_motion/
+```
+
+Despite older terminology, this stage is not numerical interpolation. It is forward-fill missing-value handling.
+
+### 3. Clean signals
+
+```bash
+cd 02_code
+uv run python src/3_clean_signals.py
+```
+
+This applies a low-pass Butterworth filter followed by Savitzky-Golay smoothing to selected tracking columns, including face box coordinates, landmarks, pose, and Action Units.
+
+Outputs are written to:
+
+```text
+01_data/02_output/02_smoothed_motion/
+├── speech/
+│   ├── Actor_01/
+│   └── ...
+└── song/
+    ├── Actor_01/
+    └── ...
+```
+
+### 4. Generate Action Unit videos
+
+```bash
+cd 02_code
+uv run python src/4_generate_au_videos.py
+```
+
+This generates Action Unit activation videos from smoothed CSV files. Some frames may raise Py-Feat plotting errors; these frames are omitted before the video is written.
+
+Outputs are written to:
+
+```text
+01_data/02_output/03_smoothed_video/action_unit_activation/
+├── speech/
+└── song/
+```
+
+### 5. Generate landmark plot videos
+
+```bash
+cd 02_code
+uv run python src/5_generate_landmark_videos.py
+```
+
+This generates videos showing landmarks, face bounding box, and head pose without rendering the original source video frame.
+
+Outputs are written to:
+
+```text
+01_data/02_output/03_smoothed_video/landmark_plot/
+├── speech/
+└── song/
+```
+
+### 6. Generate landmark overlay videos
+
+```bash
+cd 02_code
+uv run python src/6_generate_overlay_videos.py
+```
+
+This generates videos showing landmarks, face bounding box, and head pose over the original RAVDESS video frame.
+
+Outputs are written to:
+
+```text
+01_data/02_output/03_smoothed_video/landmark_overlay/
+├── speech/
+└── song/
+```
+
+## Tools
+
+Standalone helper scripts are stored in:
+
+```text
+02_code/src/tools/
+```
+
+### Download RAVDESS archives
+
+```bash
+cd 02_code
+uv run python src/tools/download_ravdess_archives.py
+```
+
+Downloads RAVDESS speech and song video archives into:
+
+```text
+01_data/00_downloads/ravdess/
+```
+
+### Plot raw versus smoothed signals
+
+```bash
+cd 02_code
+uv run python src/tools/plot_raw_smooth.py
+```
+
+Loads one raw CSV and its matching smoothed CSV, then plots a selected column for inspection. Output plots are written to:
+
+```text
+01_data/02_output/plots/
+```
+
+### Create release archives
+
+```bash
+cd 02_code
+uv run python src/tools/create_release_archives.py
+```
+
+Creates the six release ZIP files:
+
+```text
+raw_motion_speech.zip
+raw_motion_song.zip
+smoothed_motion_speech.zip
+smoothed_motion_song.zip
+smoothed_video_speech.zip
+smoothed_video_song.zip
+```
+
+Motion archives contain CSV files and use maximum ZIP compression. Video archives contain MP4 files and are stored without additional compression.
+
+Outputs are written to:
+
+```text
+01_data/02_output/04_release_archives/
+```
+
+## Output structure
+
+After running the full pipeline, the output directory should contain:
+
+```text
+01_data/02_output/
+├── 01_raw_motion/
+│   ├── speech/
+│   │   ├── Actor_01/
+│   │   └── ...
+│   └── song/
+│       ├── Actor_01/
+│       └── ...
+├── 02_smoothed_motion/
+│   ├── speech/
+│   │   ├── Actor_01/
+│   │   └── ...
+│   └── song/
+│       ├── Actor_01/
+│       └── ...
+├── 03_smoothed_video/
+│   ├── action_unit_activation/
+│   │   ├── speech/
+│   │   └── song/
+│   ├── landmark_plot/
+│   │   ├── speech/
+│   │   └── song/
+│   └── landmark_overlay/
+│       ├── speech/
+│       └── song/
+├── 04_release_archives/
+├── logs/
+└── plots/
+```
+
+## Logs
+
+Each script writes a log file to:
+
+```text
+01_data/02_output/logs/
+```
+
+Logs are useful for identifying skipped files, missing folders, Py-Feat errors, plotting-frame omissions, and release archive counts.
+
+## Notes on removed helper scripts
+
+Older helper scripts that manually split speech/song files or deleted video-only RAVDESS files are no longer part of the active codebase. Speech/song separation is now handled during task construction, and video-only files are ignored rather than deleted.
