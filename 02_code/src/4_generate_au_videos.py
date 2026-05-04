@@ -172,6 +172,9 @@ def iter_au_plot_figures(input_prediction, error_frames: list[int]) -> Iterator:
 
     Frames that fail during Py-Feat plotting are omitted. This preserves the
     original pipeline behaviour while avoiding accumulation of many open figures.
+
+    Failures come specifically from the AU heatmap overlay (``draw_muscles``),
+    not from landmark prediction or the face wireframe (``draw_lineface``).
     """
     total_frames = input_prediction.aus.shape[0]
 
