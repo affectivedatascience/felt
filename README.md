@@ -104,6 +104,18 @@ uv sync
 ```
 
 All commands below assume you are running from `02_code/`. By default, `uv sync` creates the project environment at `02_code/.venv/`.
+PyTorch with CUDA 12.1 is installed by default. For CPU-only PyTorch, comment out
+the `[tool.uv.sources]` block in `pyproject.toml` before running `uv sync`:
+
+```toml
+# [tool.uv.sources]
+# torch = { index = "pytorch-cu121" }
+# torchvision = { index = "pytorch-cu121" }
+# torchaudio = { index = "pytorch-cu121" }
+```
+
+If using CPU-only PyTorch, also change the `DEVICE` flag in
+`src/1_extract_raw_tracking.py` from `"cuda"` to `"cpu"` (line 108).
 
 Run scripts with:
 

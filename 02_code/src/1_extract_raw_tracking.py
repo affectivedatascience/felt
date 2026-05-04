@@ -105,7 +105,7 @@ warnings.filterwarnings(
 )
 
 # Py-Feat device. Use "cuda" on a CUDA-enabled GPU; otherwise use "cpu".
-DEVICE = "cpu"
+DEVICE = "cuda"
 
 # Limit native-library threading only for CPU execution.
 # This avoids XGBoost/OpenMP stalls observed with Py-Feat 0.6.2 on macOS CPU.
@@ -177,6 +177,7 @@ FACE_IDENTITY_THRESHOLD = 0.8
 # Data structures
 # =============================================================================
 
+
 @dataclass(frozen=True)
 class DetectionTask:
     """A source video and its corresponding output CSV path."""
@@ -188,6 +189,7 @@ class DetectionTask:
 # =============================================================================
 # Pipeline functions
 # =============================================================================
+
 
 def create_detector() -> Detector:
     """Create the Py-Feat detector used for FELT tracking."""
@@ -218,7 +220,9 @@ def build_tasks() -> list[DetectionTask]:
         actor_video_dir = RAVDESS_INPUT_DIR / current_actor_name
 
         if not actor_video_dir.exists():
-            logging.warning("Actor input directory not found; skipping: %s", actor_video_dir)
+            logging.warning(
+                "Actor input directory not found; skipping: %s", actor_video_dir
+            )
             continue
 
         for video_path in sorted(actor_video_dir.glob("*.mp4")):
@@ -318,8 +322,12 @@ def main() -> None:
     tasks = build_tasks()
 
     if not tasks:
-        logging.warning("No detection tasks were prepared. Check RAVDESS_INPUT_DIR and filenames.")
-        print("No detection tasks were prepared. Check RAVDESS_INPUT_DIR and filenames.")
+        logging.warning(
+            "No detection tasks were prepared. Check RAVDESS_INPUT_DIR and filenames."
+        )
+        print(
+            "No detection tasks were prepared. Check RAVDESS_INPUT_DIR and filenames."
+        )
         return
 
     logging.info("Starting detection loop for %d task(s).", len(tasks))
@@ -336,3 +344,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
