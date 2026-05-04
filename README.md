@@ -23,6 +23,8 @@ face-tracking-2024/
 │       ├── logs/
 │       └── plots/
 └── 02_code/
+    ├── pyproject.toml
+    ├── uv.lock
     └── src/
         ├── 1_extract_raw_tracking.py
         ├── 2_fill_missing_values.py
@@ -92,14 +94,16 @@ After downloading, unzip the actor archives into:
 
 ## Python environment
 
-This project uses `uv` for Python environment management.
+This project uses `uv` for Python environment management. The project file is located in `02_code/pyproject.toml`, and the resolved environment is recorded in `02_code/uv.lock`.
 
-From the project root:
+From the repository root:
 
 ```bash
 cd 02_code
 uv sync
 ```
+
+All commands below assume you are running from `02_code/`. By default, `uv sync` creates the project environment at `02_code/.venv/`.
 
 Run scripts with:
 
@@ -112,6 +116,8 @@ Example:
 ```bash
 uv run python src/1_extract_raw_tracking.py
 ```
+
+The project pins `torch==2.2.0`, `torchvision==0.17.0`, and `torchaudio==2.2.0`. The original Windows/CUDA environment used CUDA 12.1 PyTorch wheels. CPU/macOS installs may resolve through the default package index. Exact reproduction of the original CUDA environment may require installing PyTorch from the appropriate PyTorch wheel index before running the pipeline.
 
 ## Py-Feat local patches
 
@@ -139,7 +145,7 @@ RuntimeError: Can't call numpy() on Tensor that requires grad.
 
 ### 2. Overlay landmark colour patch
 
-In the installed Py-Feat plotting code, the overlay landmark colour was changed from white to blue so landmarks remain visible over the original RAVDESS frames. In the installed Py-Feat `feat/data.py`, inside `plot_detections()`, change `color = "w"` to `color = "b"`.
+In the installed Py-Feat `feat/data.py`, inside `plot_detections()`, change the overlay landmark colour from white to blue so landmarks remain visible over the original RAVDESS frames:
 
 ```python
 color = "w"
