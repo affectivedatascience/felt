@@ -96,7 +96,7 @@ SKIP_EXISTING = True
 # Keep AU video generation serial by default.
 # Py-Feat's AU visualization model is loaded from an HDF5 file, and multiprocessing
 # can trigger file-loading/cache errors.
-NUM_PROCESSES = 1
+NUM_PROCESSES = 8
 
 # Video rendering settings.
 FPS = 30
