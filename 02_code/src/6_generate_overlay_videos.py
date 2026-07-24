@@ -172,22 +172,25 @@ def generate_overlay_video_from_csv(task: LandmarkOverlayTask) -> None:
 
     logging.info("Generating landmark overlay figures for: %s", task.smoothed_csv_path)
 
-    figures = video_prediction.plot_detections(
-        faces="landmarks",
-        faceboxes=True,
-        muscles=False,
-        poses=True,
-        gazes=False,
-        add_titles=False,
-        au_barplot=False,
-        emotion_barplot=False,
-        plot_original_image=True,
-    )
+    def iter_figures():
+        for row_index in range(len(video_prediction)):
+            row = video_prediction.iloc[[row_index]]
+            yield row.plot_detections(
+                faces="landmarks",
+                faceboxes=True,
+                muscles=False,
+                poses=True,
+                gazes=False,
+                add_titles=False,
+                au_barplot=False,
+                emotion_barplot=False,
+                plot_original_image=True,
+            )[0]
 
     logging.info("Writing landmark overlay video: %s", task.overlay_video_path)
 
     write_figures_to_video(
-        figures=figures,
+        figures=iter_figures(),
         output_path=task.overlay_video_path,
         fps=FPS,
         dpi=DPI,

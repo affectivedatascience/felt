@@ -95,6 +95,7 @@ After downloading, unzip the actor archives into:
 ## Python environment
 
 This project uses `uv` for Python environment management. The project file is located in `02_code/pyproject.toml`, and the resolved environment is recorded in `02_code/uv.lock`.
+The Py-Feat 2 environment requires Python 3.11-3.13.
 
 From the repository root:
 
@@ -104,7 +105,18 @@ uv sync
 ```
 
 All commands below assume you are running from `02_code/`. By default, `uv sync` creates the project environment at `02_code/.venv/`.
-PyTorch with CUDA 12.1 is installed by default.
+The lockfile installs Py-Feat 2.0.3 with PyTorch 2.13, TorchVision 0.28, and
+TorchCodec 0.14 from the CUDA 13.0 PyTorch index.
+
+On Windows, TorchCodec also requires an FFmpeg shared build whose directory
+contains DLLs such as `avcodec-62.dll`. The static FFmpeg executable supplied
+by Scoop or `imageio-ffmpeg` is not sufficient. One isolated option is:
+
+```powershell
+conda create --prefix "$env:LOCALAPPDATA\felt-ffmpeg" -c conda-forge "ffmpeg>=8,<9" -y
+$env:PATH = "$env:LOCALAPPDATA\felt-ffmpeg\Library\bin;$env:PATH"
+uv run python src/tools/smoke_pyfeat_v2_migration.py
+```
 
 <details>
 <summary>CPU-only PyTorch setup</summary>
@@ -114,13 +126,12 @@ If you don't have a CUDA-capable GPU, comment out the `[tool.uv.sources]` block 
 
 ```toml
 # [tool.uv.sources]
-# torch = { index = "pytorch-cu121" }
-# torchvision = { index = "pytorch-cu121" }
-# torchaudio = { index = "pytorch-cu121" }
+# torch = { index = "pytorch-cu130" }
+# torchvision = { index = "pytorch-cu130" }
+# torchcodec = { index = "pytorch-cu130" }
 ```
 
-Also change the `DEVICE` flag in `src/1_extract_raw_tracking.py` from `"cuda"` to `"cpu"`
-(line 108).
+Also change the `DEVICE` flag in `src/1_extract_raw_tracking.py` from `"cuda"` to `"cpu"`.
 
 </details>
 
@@ -136,15 +147,19 @@ Example:
 uv run python src/1_extract_raw_tracking.py
 ```
 
-The project pins `torch==2.2.0`, `torchvision==0.17.0`, and `torchaudio==2.2.0`. The original Windows/CUDA environment used CUDA 12.1 PyTorch wheels. CPU/macOS installs may resolve through the default package index. Exact reproduction of the original CUDA environment may require installing PyTorch from the appropriate PyTorch wheel index before running the pipeline.
+The raw extraction stage now uses `Detectorv2`. This is a scientific model
+change from the Py-Feat 0.6.2 modular detector used for FELT v1.0.0, not merely
+a dependency update. Validate the new outputs before replacing a published
+FELT dataset.
 
-## Py-Feat local patches
+## Historical Py-Feat local patches
 
-The original FELT processing environment used Py-Feat 0.6.2. Two local Py-Feat edits were used.
+The original FELT processing environment used Py-Feat 0.6.2 with two local
+edits. They are provenance notes only and must not be applied to Py-Feat 2.0.3.
 
 ### 1. Identity tensor detach patch
 
-In the installed Py-Feat `detector.py`, modify the return statement inside `detect_identity()` from:
+The old environment changed the `detect_identity()` return statement from:
 
 ```python
 return self._convert_detector_output(facebox, face_embeddings.numpy())
@@ -156,7 +171,7 @@ to:
 return self._convert_detector_output(facebox, face_embeddings.detach().numpy())
 ```
 
-This prevents the PyTorch runtime error:
+This prevented the PyTorch runtime error:
 
 ```text
 RuntimeError: Can't call numpy() on Tensor that requires grad.
@@ -164,7 +179,7 @@ RuntimeError: Can't call numpy() on Tensor that requires grad.
 
 ### 2. Overlay landmark colour patch
 
-In the installed Py-Feat `feat/data.py`, inside `plot_detections()`, change the overlay landmark colour from white to blue so landmarks remain visible over the original RAVDESS frames:
+The old environment changed the overlay landmark colour from white to blue so landmarks remained visible over the original RAVDESS frames:
 
 ```python
 color = "w"

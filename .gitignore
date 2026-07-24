@@ -7,6 +7,7 @@
 # Python environments
 /venv-felt/
 /.venv/
+/02_code/.venv/
 /02_code/venv-felt/
 
 # Python cache/build artifacts
