@@ -21,6 +21,20 @@ modality, vocal channel, emotion, intensity, statement, repetition, and actor.
 The full release contains 299,854 frame rows. CSV row count equals decoded
 source-video frame count for every trial.
 
+## Py-Feat interoperability
+
+FELT CSV files retain the Py-Feat 2.0.3 `Detectorv2` tabular schema and can be
+loaded for measurement-based Py-Feat analyses. The `input` column contains a
+portable RAVDESS-relative identifier rather than an absolute path from the
+extraction machine. This makes the CSVs relocatable, but functions that reopen
+the original image or video require the identifier to be rebased to the user's
+local RAVDESS directory after loading.
+
+The raw FELT CSVs are compatible Detectorv2 tables with the documented missing
+output repair and portable source-reference normalization. The smoothed FELT
+CSVs retain that schema but contain FELT-derived filtered measurements; they
+are not unmodified Py-Feat detector output.
+
 ## Face detection and 2D geometry
 
 | Columns | Count | Meaning and units | Smoothed? |

@@ -214,6 +214,16 @@ This runs Py-Feat on valid full audiovisual RAVDESS speech/song videos and write
 
 The script skips existing output files by default.
 
+The released CSVs retain the Py-Feat 2.0.3 `Detectorv2` tabular schema and can
+be loaded for measurement-based Py-Feat analyses. Their `input` values are
+portable RAVDESS-relative identifiers rather than extraction-machine paths.
+Py-Feat functions that reopen the original media therefore require these
+identifiers to be rebased to the user's local RAVDESS directory after loading.
+Smoothed CSVs retain the same schema but contain FELT-derived filtered
+measurements; they are not unmodified detector output. See
+[`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) for the complete interoperability
+and raw-versus-smoothed description.
+
 ### 2. Fill missing values
 
 ```bash
