@@ -1,0 +1,2 @@
+relative_csv_path,frame,method,expected_missing_cells,rationale
+song/Actor_10/01-02-05-01-01-01-10.csv,36,forward_fill_failed_model_output,2177,Reproducible Detectorv2 model-output failure with frame metadata retained; approved replacement of model outputs from the preceding frame including the zero FaceScore sentinel.

@@ -2,6 +2,16 @@
 
 This repository contains the Python scripts used to generate the FELT facial-tracking outputs from the RAVDESS audiovisual video files. The pipeline runs Py-Feat on RAVDESS videos, checks missing values, filters and smooths selected tracking columns, generates visualization videos, and packages the final release archives.
 
+For the exact release command sequence, use [PIPELINE.md](PIPELINE.md). See
+[REPRODUCIBILITY.md](REPRODUCIBILITY.md) for the fixed scientific profile,
+acceptance counts, provenance requirements, and cross-machine tolerances. The
+[data dictionary](DATA_DICTIONARY.md) describes the 2,184-column Detectorv2
+schema. See [HISTORY.md](HISTORY.md) for the v1/v2 boundary and
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) for runtime issues.
+The mixed generated logs, QC, previews, and caches are inventoried—without
+moving them—in the
+[output artifact classification](docs/OUTPUT_ARTIFACT_CLASSIFICATION.md).
+
 The pipeline is non-destructive. It does not delete RAVDESS source files. It selectively processes only full audiovisual RAVDESS files whose filenames begin with `01-`. Video-only files beginning with `02-` and audio-only files beginning with `03-` are ignored during task construction.
 
 ## Repository structure
@@ -29,15 +39,17 @@ face-tracking-2024/
         ├── 1_extract_raw_tracking.py
         ├── 2_fill_missing_values.py
         ├── 3_clean_signals.py
-        ├── 4_generate_au_videos.py
-        ├── 5_generate_landmark_videos.py
-        ├── 6_generate_overlay_videos.py
+        ├── 4_generate_visualizations.py
+        ├── 5_package_release.py
+        ├── experimental/
+        ├── legacy/
         ├── tools/
         │   ├── create_release_archives.py
         │   ├── download_ravdess_archives.py
         │   └── plot_raw_smooth.py
         └── utils/
             ├── __init__.py
+            ├── ffmpeg_runtime.py
             ├── felt_paths.py
             └── video_rendering.py
 ```
@@ -95,6 +107,7 @@ After downloading, unzip the actor archives into:
 ## Python environment
 
 This project uses `uv` for Python environment management. The project file is located in `02_code/pyproject.toml`, and the resolved environment is recorded in `02_code/uv.lock`.
+The Py-Feat 2 environment requires Python 3.11-3.13.
 
 From the repository root:
 
@@ -104,25 +117,21 @@ uv sync
 ```
 
 All commands below assume you are running from `02_code/`. By default, `uv sync` creates the project environment at `02_code/.venv/`.
-PyTorch with CUDA 12.1 is installed by default.
+The lockfile installs Py-Feat 2.0.3 with PyTorch 2.13, TorchVision 0.28, and
+TorchCodec 0.14 from the CUDA 13.0 PyTorch index.
 
-<details>
-<summary>CPU-only PyTorch setup</summary>
+On Windows, TorchCodec also requires an FFmpeg 4–8 shared build whose directory
+contains DLLs such as `avcodec-62.dll`. The static FFmpeg executable supplied
+by Scoop or `imageio-ffmpeg` is not sufficient. One isolated option is:
 
-If you don't have a CUDA-capable GPU, comment out the `[tool.uv.sources]` block in
-`pyproject.toml` before running `uv sync`:
-
-```toml
-# [tool.uv.sources]
-# torch = { index = "pytorch-cu121" }
-# torchvision = { index = "pytorch-cu121" }
-# torchaudio = { index = "pytorch-cu121" }
+```powershell
+conda create --prefix "$env:LOCALAPPDATA\felt-ffmpeg" -c conda-forge "ffmpeg>=8,<9" -y
+$env:FFMPEG_DIR = "$env:LOCALAPPDATA\felt-ffmpeg\Library\bin"
+uv run python src/experimental/smoke_pyfeat_v2_migration.py --ffmpeg-bin $env:FFMPEG_DIR
 ```
 
-Also change the `DEVICE` flag in `src/1_extract_raw_tracking.py` from `"cuda"` to `"cpu"`
-(line 108).
-
-</details>
+For CPU extraction, pass `--device cpu`; no source edit is required. See
+`TROUBLESHOOTING.md` for CUDA and TorchCodec checks.
 
 Run scripts with:
 
@@ -136,15 +145,19 @@ Example:
 uv run python src/1_extract_raw_tracking.py
 ```
 
-The project pins `torch==2.2.0`, `torchvision==0.17.0`, and `torchaudio==2.2.0`. The original Windows/CUDA environment used CUDA 12.1 PyTorch wheels. CPU/macOS installs may resolve through the default package index. Exact reproduction of the original CUDA environment may require installing PyTorch from the appropriate PyTorch wheel index before running the pipeline.
+The raw extraction stage now uses `Detectorv2`. This is a scientific model
+change from the Py-Feat 0.6.2 modular detector used for FELT v1.0.0, not merely
+a dependency update. Validate the new outputs before replacing a published
+FELT dataset.
 
-## Py-Feat local patches
+## Historical Py-Feat local patches
 
-The original FELT processing environment used Py-Feat 0.6.2. Two local Py-Feat edits were used.
+The original FELT processing environment used Py-Feat 0.6.2 with two local
+edits. They are provenance notes only and must not be applied to Py-Feat 2.0.3.
 
 ### 1. Identity tensor detach patch
 
-In the installed Py-Feat `detector.py`, modify the return statement inside `detect_identity()` from:
+The old environment changed the `detect_identity()` return statement from:
 
 ```python
 return self._convert_detector_output(facebox, face_embeddings.numpy())
@@ -156,7 +169,7 @@ to:
 return self._convert_detector_output(facebox, face_embeddings.detach().numpy())
 ```
 
-This prevents the PyTorch runtime error:
+This prevented the PyTorch runtime error:
 
 ```text
 RuntimeError: Can't call numpy() on Tensor that requires grad.
@@ -164,7 +177,7 @@ RuntimeError: Can't call numpy() on Tensor that requires grad.
 
 ### 2. Overlay landmark colour patch
 
-In the installed Py-Feat `feat/data.py`, inside `plot_detections()`, change the overlay landmark colour from white to blue so landmarks remain visible over the original RAVDESS frames:
+The old environment changed the overlay landmark colour from white to blue so landmarks remained visible over the original RAVDESS frames:
 
 ```python
 color = "w"
@@ -208,7 +221,11 @@ cd 02_code
 uv run python src/2_fill_missing_values.py
 ```
 
-This checks raw tracking CSV files for null values and applies pandas forward-fill when needed. This stage modifies files in place under:
+This applies only the versioned corrections listed in
+`02_code/config/missing_value_corrections_v2.csv`. It verifies the expected
+blank-cell count before replacing the failed model output from the preceding
+frame while retaining source/frame metadata, and
+writes an audit record. This stage modifies the listed raw file in place under:
 
 ```text
 01_data/02_output/01_raw_motion/
@@ -218,12 +235,40 @@ Despite older terminology, this stage is not numerical interpolation. It is forw
 
 ### 3. Clean signals
 
+The normal reproduction path uses the approved cutoff artifact tracked at
+`02_code/config/master_cutoffs_v2.json`:
+
 ```bash
 cd 02_code
-uv run python src/3_clean_signals.py
+uv run python src/3_clean_signals.py --workers 12
 ```
 
-This applies a low-pass Butterworth filter followed by Savitzky-Golay smoothing to selected tracking columns, including face box coordinates, landmarks, pose, and Action Units.
+The stage verifies all 2,452 raw files against the artifact's path-independent
+size and content manifests before processing. Action Units and blendshapes are
+filtered by default in the official release profile. The switches
+`--no-filter-action-units` and `--no-filter-blendshapes` exist only for
+diagnostic derivatives.
+
+To reproduce the scientific cutoff-estimation analysis rather than the release
+pipeline, run:
+
+```bash
+cd 02_code
+uv run python src/tools/estimate_challis_cutoffs.py \
+  --workers 2 --include-action-units --include-blendshapes
+```
+
+Review its generated artifact and QC tables under
+`01_data/02_output/qc/challis_smoothing/`; re-estimation does not replace the
+tracked approved artifact automatically.
+
+This applies group-specific, corrected zero-phase Butterworth filters to face
+mesh, 68-point landmarks, head rotation, head translation, gaze, and face-box
+trajectories, and independent approved cutoffs to each Action Unit and
+blendshape column. Filtering all recoverable families preserves the option to
+create a geometry-only derivative later by restoring raw AU and blendshape
+columns; obtaining smoothed versions later would require rerunning the filters.
+The revised pipeline does not apply a second Savitzky-Golay stage.
 
 Outputs are written to:
 
@@ -237,56 +282,39 @@ Outputs are written to:
     └── ...
 ```
 
-### 4. Generate Action Unit videos
+### 4. Generate the seven canonical visualization products
 
 ```bash
 cd 02_code
-uv run python src/4_generate_au_videos.py
+uv run python src/4_generate_visualizations.py --dry-run
+uv run python src/4_generate_visualizations.py --workers 2
 ```
 
-This generates Action Unit activation videos from smoothed CSV files. Some frames may raise Py-Feat plotting errors; these frames are omitted before the video is written.
+The renderer resumes safely: each trial is generated in private staging,
+checked for non-empty files and decoded frame counts, and atomically promoted.
+The seven H.264 products are:
 
-Outputs are written to:
+1. Action Unit region heatmap;
+2. blendshape region heatmap;
+3. AU-to-canonical-mesh animation;
+4. landmark-only contour mesh;
+5. landmark-only tessellation mesh;
+6. landmark-overlay contour mesh; and
+7. landmark-overlay tessellation mesh.
+
+The two overlay products require the original RAVDESS MP4s under
+`01_data/01_input/Actor_XX/`. The other five derive from the smoothed CSVs.
+All products are written beneath:
 
 ```text
-01_data/02_output/03_smoothed_video/action_unit_activation/
-├── speech/
-└── song/
+01_data/02_output/03_smoothed_video/felt_visualization_set/
+├── AU_animation/
+├── landmark_only/
+└── Landmark_overlay/
 ```
 
-### 5. Generate landmark plot videos
-
-```bash
-cd 02_code
-uv run python src/5_generate_landmark_videos.py
-```
-
-This generates videos showing landmarks, face bounding box, and head pose without rendering the original source video frame.
-
-Outputs are written to:
-
-```text
-01_data/02_output/03_smoothed_video/landmark_plot/
-├── speech/
-└── song/
-```
-
-### 6. Generate landmark overlay videos
-
-```bash
-cd 02_code
-uv run python src/6_generate_overlay_videos.py
-```
-
-This generates videos showing landmarks, face bounding box, and head pose over the original RAVDESS video frame.
-
-Outputs are written to:
-
-```text
-01_data/02_output/03_smoothed_video/landmark_overlay/
-├── speech/
-└── song/
-```
+The older three-product renderers are preserved under `src/legacy/` for
+provenance and are not part of FELT v2 reproduction.
 
 ## Tools
 
@@ -326,21 +354,26 @@ Loads one raw CSV and its matching smoothed CSV, then plots a selected column fo
 
 ```bash
 cd 02_code
-uv run python src/tools/create_release_archives.py
+uv run python src/5_package_release.py --dry-run
+uv run python src/5_package_release.py
 ```
 
-Creates the six release ZIP files:
+The dry run fails unless the exact canonical inventories are present: 2,452 raw
+CSVs, 2,452 smoothed CSVs, and 17,164 MP4s. The full command creates and
+verifies three unified release ZIP files:
 
 ```text
-raw_motion_speech.zip
-raw_motion_song.zip
-smoothed_motion_speech.zip
-smoothed_motion_song.zip
-smoothed_video_speech.zip
-smoothed_video_song.zip
+01_raw_motion.zip
+02_smoothed_motion.zip
+03_smoothed_video.zip
+release_manifest.json
+SHA256SUMS.txt
 ```
 
-Motion archives contain CSV files and use maximum ZIP compression. Video archives contain MP4 files and are stored without additional compression.
+Motion archives use maximum ZIP compression. MP4 members are stored without
+additional compression. Fixed member timestamps and ordering make repeated
+builds deterministic for unchanged inputs; the manifest also records a
+path-independent content digest for every component.
 
 Outputs are written to:
 
@@ -369,16 +402,16 @@ After running the full pipeline, the output directory should contain:
 │       ├── Actor_01/
 │       └── ...
 ├── 03_smoothed_video/
-│   ├── action_unit_activation/
-│   │   ├── speech/
-│   │   └── song/
-│   ├── landmark_plot/
-│   │   ├── speech/
-│   │   └── song/
-│   └── landmark_overlay/
-│       ├── speech/
-│       └── song/
+│   └── felt_visualization_set/
+│       ├── AU_animation/
+│       ├── landmark_only/
+│       └── Landmark_overlay/
 ├── 04_release_archives/
+│   ├── 01_raw_motion.zip
+│   ├── 02_smoothed_motion.zip
+│   ├── 03_smoothed_video.zip
+│   ├── release_manifest.json
+│   └── SHA256SUMS.txt
 ├── logs/
 └── plots/
 ```
@@ -391,7 +424,8 @@ Each script writes a log file to:
 01_data/02_output/logs/
 ```
 
-Logs are useful for identifying skipped files, missing folders, Py-Feat errors, plotting-frame omissions, and release archive counts.
+Logs are useful for identifying extraction and smoothing errors. The release
+manifest and checksums are the authoritative packaging inventory.
 
 ## Notes on removed helper scripts
 

@@ -1,5 +1,5 @@
 """
-Generate FELT Action Unit activation videos.
+Legacy FELT v1 Action Unit activation video generator.
 
 This script reads smoothed FELT tracking CSV files and generates one Action Unit
 activation video per CSV file. Each output video visualizes frame-level AU values

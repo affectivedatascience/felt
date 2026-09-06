@@ -8,9 +8,10 @@ does not perform tracking, missing-value filling, smoothing, or visualization.
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-
 
 # =============================================================================
 # Project paths
@@ -30,9 +31,31 @@ def find_project_root() -> Path:
 
 PROJECT_ROOT = find_project_root()
 
-DATA_DIR = PROJECT_ROOT / "01_data"
-INPUT_DIR = DATA_DIR / "01_input"
-OUTPUT_DIR = DATA_DIR / "02_output"
+DATA_DIR_ENV = "FELT_DATA_DIR"
+INPUT_DIR_ENV = "FELT_INPUT_DIR"
+OUTPUT_DIR_ENV = "FELT_OUTPUT_DIR"
+
+
+def configured_path(
+    environment_variable: str,
+    default: Path,
+    environment: Mapping[str, str] | None = None,
+) -> Path:
+    """Resolve a path override from the environment or return its default.
+
+    Separate input and output overrides allow a validation worktree to read a
+    shared RAVDESS corpus while writing every generated artifact to an isolated
+    location. Relative override values are resolved against the process's
+    current working directory.
+    """
+    values = os.environ if environment is None else environment
+    configured = values.get(environment_variable, "").strip()
+    return Path(configured).expanduser().resolve() if configured else default.resolve()
+
+
+DATA_DIR = configured_path(DATA_DIR_ENV, PROJECT_ROOT / "01_data")
+INPUT_DIR = configured_path(INPUT_DIR_ENV, DATA_DIR / "01_input")
+OUTPUT_DIR = configured_path(OUTPUT_DIR_ENV, DATA_DIR / "02_output")
 
 RAW_MOTION_DIR = OUTPUT_DIR / "01_raw_motion"
 SMOOTHED_MOTION_DIR = OUTPUT_DIR / "02_smoothed_motion"
@@ -162,7 +185,6 @@ def should_process_full_av_speech_song(code: RavdessCode) -> bool:
     if code.vocal_channel not in VALID_VOCAL_CHANNEL_CODES:
         return False
 
-    if code.actor == ACTOR_WITHOUT_SONG and code.vocal_channel == SONG_CHANNEL:
-        return False
-
-    return True
+    return not (
+        code.actor == ACTOR_WITHOUT_SONG and code.vocal_channel == SONG_CHANNEL
+    )

@@ -52,28 +52,25 @@ files are skipped. Actor 18 has no song recordings in RAVDESS.
 # The original working environment used PyTorch 2.2.0 / torchvision 0.17.0 /
 # torchaudio 2.2.0 with CUDA 12.1 wheels.
 #
-# A local patch was applied to feat/detector.py in Py-Feat 0.6.2. In the
-# detect_identity() function, the return statement was changed from:
-#
-#     return self._convert_detector_output(facebox, face_embeddings.numpy())
-#
-# to:
-#
-#     return self._convert_detector_output(facebox, face_embeddings.detach().numpy())
-#
-# This patch detaches the PyTorch tensor before conversion to NumPy. Exact
-# reproduction of the released FELT tracking files may require the same patched
-# Py-Feat 0.6.2 environment.
+# The maintained rerun environment uses Py-Feat 2.0.3 with Detectorv2 and
+# Python 3.11+. Detectorv2 changes the scientific model and expands the raw
+# output schema while retaining the 68-point landmarks and 20 AU columns used
+# by the existing FELT smoothing and visualization stages.
+# The local Py-Feat 0.6.2 identity patch is no longer required.
 
 from __future__ import annotations
 
+import argparse
+import csv
 import logging
 import os
 import sys
+import time
 import warnings
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-
+from typing import Any
 
 # =============================================================================
 # Make the local utils/ package importable when this script is run directly.
@@ -107,18 +104,7 @@ warnings.filterwarnings(
 # Py-Feat device. Use "cuda" on a CUDA-enabled GPU; otherwise use "cpu".
 DEVICE = "cuda"
 
-# Limit native-library threading only for CPU execution.
-# This avoids XGBoost/OpenMP stalls observed with Py-Feat 0.6.2 on macOS CPU.
-# IMPORTANT: these must be set before importing Py-Feat / XGBoost / Torch.
-if DEVICE == "cpu":
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
-    os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-    os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
-from feat import Detector
-
-from utils.felt_paths import (
+from utils.felt_paths import (  # noqa: E402
     INPUT_DIR,
     LOG_DIR,
     PROJECT_ROOT,
@@ -129,7 +115,10 @@ from utils.felt_paths import (
     should_process_full_av_speech_song,
     vocal_channel_folder,
 )
-
+from utils.ffmpeg_runtime import (  # noqa: E402
+    configure_ffmpeg_dlls,
+    resolve_ffmpeg_bin,
+)
 
 # =============================================================================
 # User-editable configuration
@@ -145,9 +134,6 @@ LOG_FILE = LOG_DIR / "1_extract_raw_tracking.log"
 START_ACTOR = 1
 END_ACTOR = 24
 
-# Optional test mode: process only the first valid full-AV speech/song video found.
-PROCESS_FIRST_VIDEO_ONLY = False
-
 # Existing output CSV files are skipped so interrupted runs can resume.
 SKIP_EXISTING = True
 
@@ -156,17 +142,12 @@ SKIP_EXISTING = True
 # Py-Feat detector configuration
 # =============================================================================
 
-FACE_MODEL = "img2pose"
-LANDMARK_MODEL = "mobilenet"
-AU_MODEL = "xgb"
-EMOTION_MODEL = "resmasknet"
-FACEPOSE_MODEL = "img2pose-c"
-IDENTITY_MODEL = "facenet"
+IDENTITY_MODEL = "arcface"
 
 # Py-Feat video-detection parameters used for FELT.
 # Py-Feat output size is specified as (height, width).
 OUTPUT_SIZE = (720, 1280)
-BATCH_SIZE = 5
+BATCH_SIZE = 1
 NUM_WORKERS = 0
 PIN_MEMORY = False
 FACE_DETECTION_THRESHOLD = 0.83
@@ -186,38 +167,139 @@ class DetectionTask:
     csv_path: Path
 
 
+@dataclass(frozen=True)
+class RunConfig:
+    """Runtime controls for a raw tracking extraction run."""
+
+    device: str
+    batch_size: int
+    num_workers: int
+    pin_memory: bool
+    skip_existing: bool
+    face_detection_threshold: float
+    face_identity_threshold: float
+    log_file: Path
+    ffmpeg_bin: str | None
+
+
+@dataclass(frozen=True)
+class TaskResult:
+    """A per-file extraction result row."""
+
+    worker_id: int
+    task_index: int
+    task_count: int
+    status: str
+    video_path: Path
+    csv_path: Path
+    elapsed_seconds: float
+    batch_size: int
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class TaskFilters:
+    """Selection filters for development subsets and full runs."""
+
+    start_actor: int
+    end_actor: int
+    actors: tuple[int, ...]
+    vocal_channel: str
+    stems: tuple[str, ...]
+    file_list: Path | None
+    limit: int | None
+    first: bool
+
+
 # =============================================================================
 # Pipeline functions
 # =============================================================================
 
 
-def create_detector() -> Detector:
-    """Create the Py-Feat detector used for FELT tracking."""
-    logging.info("Loading Py-Feat Detector.")
+def configure_compute_environment(device: str) -> None:
+    """Configure native-library threading before importing Py-Feat.
 
-    detector = Detector(
-        face_model=FACE_MODEL,
-        landmark_model=LANDMARK_MODEL,
-        au_model=AU_MODEL,
-        emotion_model=EMOTION_MODEL,
-        facepose_model=FACEPOSE_MODEL,
+    CPU runs use one thread per native library because extraction already uses
+    file-level multiprocessing. CUDA runs retain the user's native defaults.
+    """
+    if device == "cpu":
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+        os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+        os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+
+def create_detector(device: str = DEVICE) -> Any:
+    """Create the Py-Feat detector used for FELT tracking."""
+    configure_compute_environment(device)
+
+    from feat import Detectorv2
+
+    logging.info("Loading Py-Feat Detectorv2 on %s.", device)
+
+    detector = Detectorv2(
         identity_model=IDENTITY_MODEL,
-        device=DEVICE,
-        n_jobs=1,
-        verbose=False,
+        device=device,
     )
 
-    logging.info("Py-Feat Detector loaded.")
+    logging.info("Py-Feat Detectorv2 loaded.")
     return detector
 
 
-def build_tasks() -> list[DetectionTask]:
-    """Build detection tasks for valid RAVDESS full-AV speech/song videos."""
-    tasks: list[DetectionTask] = []
+def load_requested_stems(file_list: Path | None) -> set[str]:
+    """Load requested video stems from a plain-text file list."""
+    if file_list is None:
+        return set()
 
-    for actor_id in range(START_ACTOR, END_ACTOR + 1):
+    stems: set[str] = set()
+    with file_list.open("r", encoding="utf-8-sig") as f:
+        for line in f:
+            value = line.strip()
+            if not value or value.startswith("#"):
+                continue
+            stems.add(Path(value).stem)
+    return stems
+
+
+def include_task(video_path: Path, filters: TaskFilters, file_list_stems: set[str]) -> bool:
+    """Return True when a source video matches the CLI subset filters."""
+    code = parse_ravdess_stem(video_path)
+    channel_folder = vocal_channel_folder(code)
+
+    if filters.actors and code.actor not in filters.actors:
+        return False
+
+    if filters.vocal_channel != "all" and channel_folder != filters.vocal_channel:
+        return False
+
+    requested_stems = set(filters.stems) | file_list_stems
+    return not requested_stems or video_path.stem in requested_stems
+
+
+def build_tasks(
+    filters: TaskFilters | None = None,
+    input_dir: Path = RAVDESS_INPUT_DIR,
+    raw_motion_dir: Path = RAW_MOTION_DIR,
+) -> list[DetectionTask]:
+    """Build detection tasks for valid RAVDESS full-AV speech/song videos."""
+    if filters is None:
+        filters = TaskFilters(
+            start_actor=START_ACTOR,
+            end_actor=END_ACTOR,
+            actors=(),
+            vocal_channel="all",
+            stems=(),
+            file_list=None,
+            limit=None,
+            first=False,
+        )
+
+    tasks: list[DetectionTask] = []
+    file_list_stems = load_requested_stems(filters.file_list)
+
+    for actor_id in range(filters.start_actor, filters.end_actor + 1):
         current_actor_name = actor_name(actor_id)
-        actor_video_dir = RAVDESS_INPUT_DIR / current_actor_name
+        actor_video_dir = input_dir / current_actor_name
 
         if not actor_video_dir.exists():
             logging.warning(
@@ -233,6 +315,10 @@ def build_tasks() -> list[DetectionTask]:
                     logging.debug("Skipping non-target file: %s", video_path)
                     continue
 
+                if not include_task(video_path, filters, file_list_stems):
+                    logging.debug("Skipping file outside selected subset: %s", video_path)
+                    continue
+
                 channel_folder = vocal_channel_folder(code)
 
             except ValueError as exc:
@@ -243,25 +329,40 @@ def build_tasks() -> list[DetectionTask]:
                 )
                 continue
 
-            actor_csv_dir = RAW_MOTION_DIR / channel_folder / current_actor_name
+            actor_csv_dir = raw_motion_dir / channel_folder / current_actor_name
             actor_csv_dir.mkdir(parents=True, exist_ok=True)
 
             csv_path = actor_csv_dir / f"{video_path.stem}.csv"
             tasks.append(DetectionTask(video_path=video_path, csv_path=csv_path))
 
-            if PROCESS_FIRST_VIDEO_ONLY:
+            if filters.first:
                 logging.info("Single-file test mode enabled.")
                 logging.info("Selected test video: %s", video_path)
                 logging.info("Selected output CSV: %s", csv_path)
+                return tasks
+
+            if filters.limit is not None and len(tasks) >= filters.limit:
+                logging.info("Task limit reached: %d", filters.limit)
                 return tasks
 
     logging.info("Prepared %d detection tasks.", len(tasks))
     return tasks
 
 
-def save_prediction_csv(feat_prediction, csv_path: Path) -> None:
-    """Save a Py-Feat prediction dataframe to CSV."""
+def canonical_source_reference(video_path: Path) -> str:
+    """Return a machine-independent RAVDESS source reference."""
+    video_path = Path(video_path)
+    return Path(video_path.parent.name, video_path.name).as_posix()
+
+
+def save_prediction_csv(feat_prediction, csv_path: Path, video_path: Path) -> None:
+    """Save a prediction with a portable source-video reference."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if "input" not in feat_prediction.columns:
+        raise ValueError("Py-Feat prediction is missing the required input column.")
+    feat_prediction = feat_prediction.copy()
+    feat_prediction.loc[:, "input"] = canonical_source_reference(video_path)
 
     # Preserve the previous script's default pandas behavior.
     # This writes the DataFrame index unless Py-Feat suppresses it internally.
@@ -271,55 +372,351 @@ def save_prediction_csv(feat_prediction, csv_path: Path) -> None:
     print(f"Output saved to: {csv_path}")
 
 
-def run_detection(detector: Detector, task: DetectionTask) -> None:
+def run_detection(
+    detector: Any,
+    task: DetectionTask,
+    config: RunConfig,
+    *,
+    worker_id: int = 0,
+    task_index: int = 1,
+    task_count: int = 1,
+) -> TaskResult:
     """Run Py-Feat detection for one video file and save the CSV output."""
-    if SKIP_EXISTING and task.csv_path.exists():
+    started_at = time.perf_counter()
+
+    if config.skip_existing and task.csv_path.exists():
         logging.info("Output already exists; skipping: %s", task.csv_path)
         print(f"Output already exists; skipping: {task.csv_path}")
-        return
+        return TaskResult(
+            worker_id=worker_id,
+            task_index=task_index,
+            task_count=task_count,
+            status="skipped_existing",
+            video_path=task.video_path,
+            csv_path=task.csv_path,
+            elapsed_seconds=time.perf_counter() - started_at,
+            batch_size=config.batch_size,
+        )
 
     try:
         logging.info("Running detection for file: %s", task.video_path)
         print(f"Running detection for file: {task.video_path}")
 
-        video_prediction = detector.detect_video(
+        video_prediction = detector.detect(
             str(task.video_path),
+            data_type="video",
             skip_frames=None,
             output_size=OUTPUT_SIZE,
-            batch_size=BATCH_SIZE,
-            num_workers=NUM_WORKERS,
-            pin_memory=PIN_MEMORY,
-            face_detection_threshold=FACE_DETECTION_THRESHOLD,
-            face_identity_threshold=FACE_IDENTITY_THRESHOLD,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            pin_memory=config.pin_memory,
+            face_detection_threshold=config.face_detection_threshold,
+            face_identity_threshold=config.face_identity_threshold,
         )
 
-        save_prediction_csv(video_prediction, task.csv_path)
+        save_prediction_csv(video_prediction, task.csv_path, task.video_path)
+        return TaskResult(
+            worker_id=worker_id,
+            task_index=task_index,
+            task_count=task_count,
+            status="ok",
+            video_path=task.video_path,
+            csv_path=task.csv_path,
+            elapsed_seconds=time.perf_counter() - started_at,
+            batch_size=config.batch_size,
+        )
 
     except KeyboardInterrupt:
         logging.warning("Interrupted by user.")
         raise
 
-    except Exception:
+    except Exception as exc:
         logging.exception("Error processing file: %s", task.video_path)
-        print(f"Error processing file. See log: {LOG_FILE}")
+        print(f"Error processing file. See log: {config.log_file}")
+        return TaskResult(
+            worker_id=worker_id,
+            task_index=task_index,
+            task_count=task_count,
+            status="error",
+            video_path=task.video_path,
+            csv_path=task.csv_path,
+            elapsed_seconds=time.perf_counter() - started_at,
+            batch_size=config.batch_size,
+            error=repr(exc),
+        )
 
 
-def main() -> None:
+def split_evenly(items: list[DetectionTask], workers: int) -> list[list[DetectionTask]]:
+    """Split tasks across worker shards while preserving deterministic order."""
+    shards = [[] for _ in range(workers)]
+    for index, item in enumerate(items):
+        shards[index % workers].append(item)
+    return [shard for shard in shards if shard]
+
+
+def run_task_shard(
+    worker_id: int,
+    tasks: list[DetectionTask],
+    config: RunConfig,
+) -> list[TaskResult]:
+    """Run one process-local detector over a shard of files."""
+    worker_log = config.log_file.with_name(
+        f"{config.log_file.stem}_worker_{worker_id}{config.log_file.suffix}"
+    )
+    configure_logging(worker_log)
+    logging.info("Worker %d starting with %d task(s).", worker_id, len(tasks))
+
+    configure_ffmpeg_dlls(config.ffmpeg_bin)
+    detector = create_detector(config.device)
+    results: list[TaskResult] = []
+    for index, task in enumerate(tasks, start=1):
+        logging.info("Worker %d processing %d/%d: %s", worker_id, index, len(tasks), task.video_path)
+        print(f"[worker {worker_id} {index}/{len(tasks)}] {task.video_path}")
+        result = run_detection(
+            detector,
+            task,
+            config,
+            worker_id=worker_id,
+            task_index=index,
+            task_count=len(tasks),
+        )
+        results.append(result)
+    return results
+
+
+def write_run_report(report_path: Path, rows: list[TaskResult]) -> None:
+    """Write a CSV manifest for dry-run or extraction results."""
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "worker_id",
+        "task_index",
+        "task_count",
+        "status",
+        "batch_size",
+        "elapsed_seconds",
+        "video_path",
+        "csv_path",
+        "error",
+    ]
+    with report_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "worker_id": row.worker_id,
+                    "task_index": row.task_index,
+                    "task_count": row.task_count,
+                    "status": row.status,
+                    "batch_size": row.batch_size,
+                    "elapsed_seconds": f"{row.elapsed_seconds:.3f}",
+                    "video_path": row.video_path,
+                    "csv_path": row.csv_path,
+                    "error": row.error,
+                }
+            )
+
+
+def write_task_report(report_path: Path, tasks: list[DetectionTask], batch_size: int) -> None:
+    """Write a dry-run task manifest."""
+    rows = [
+        TaskResult(
+            worker_id=0,
+            task_index=index,
+            task_count=len(tasks),
+            status="planned",
+            video_path=task.video_path,
+            csv_path=task.csv_path,
+            elapsed_seconds=0.0,
+            batch_size=batch_size,
+        )
+        for index, task in enumerate(tasks, start=1)
+    ]
+    write_run_report(report_path, rows)
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse raw extraction command-line options."""
+    parser = argparse.ArgumentParser(
+        description="Run Py-Feat raw tracking on RAVDESS full-AV speech/song videos."
+    )
+    parser.add_argument(
+        "--input-root",
+        type=Path,
+        default=RAVDESS_INPUT_DIR,
+        help="Directory containing Actor_XX RAVDESS input folders.",
+    )
+    parser.add_argument(
+        "--raw-output-root",
+        type=Path,
+        default=RAW_MOTION_DIR,
+        help="Destination root for speech/song raw-motion CSV files.",
+    )
+    parser.add_argument(
+        "--device",
+        choices=("cpu", "cuda"),
+        default=DEVICE,
+        help="Py-Feat inference device (default: cuda).",
+    )
+    parser.add_argument(
+        "--ffmpeg-bin",
+        type=Path,
+        help=(
+            "Directory containing a shared FFmpeg 4-8 build. Also resolved "
+            "from FFMPEG_DIR, PATH, or Scoop ffmpeg-shared."
+        ),
+    )
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of file-level worker processes.",
+    )
+    parser.add_argument(
+        "--pyfeat-num-workers",
+        type=int,
+        default=NUM_WORKERS,
+        help="num_workers passed to Py-Feat detect_video within each process.",
+    )
+    parser.add_argument("--start-actor", type=int, default=START_ACTOR)
+    parser.add_argument("--end-actor", type=int, default=END_ACTOR)
+    parser.add_argument(
+        "--actor",
+        type=int,
+        action="append",
+        default=[],
+        help="Restrict to one actor. Repeat for multiple actors.",
+    )
+    parser.add_argument(
+        "--vocal-channel",
+        choices=("all", "speech", "song"),
+        default="all",
+    )
+    parser.add_argument(
+        "--stem",
+        action="append",
+        default=[],
+        help="Restrict to one RAVDESS filename stem. Repeat for multiple files.",
+    )
+    parser.add_argument(
+        "--file-list",
+        type=Path,
+        help="Plain-text list of filename stems or paths to process.",
+    )
+    parser.add_argument("--limit", type=int, help="Process only the first N selected tasks.")
+    parser.add_argument(
+        "--skip-first",
+        type=int,
+        default=0,
+        help="Skip the first N selected tasks before dry-run or processing.",
+    )
+    parser.add_argument(
+        "--first",
+        action="store_true",
+        help="Process only the first selected task.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing CSVs instead of skipping them.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and report tasks without loading Py-Feat or processing videos.",
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="CSV task/result report path (default: sibling logs directory).",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        help="Main log path (default: sibling logs directory).",
+    )
+    return parser.parse_args()
+
+
+def validate_args(args: argparse.Namespace) -> int:
+    """Validate CLI arguments and return a shell-style status code."""
+    if args.batch_size < 1:
+        print("--batch-size must be >= 1", file=sys.stderr)
+        return 2
+    if args.workers < 1:
+        print("--workers must be >= 1", file=sys.stderr)
+        return 2
+    if args.pyfeat_num_workers < 0:
+        print("--pyfeat-num-workers must be >= 0", file=sys.stderr)
+        return 2
+    if args.start_actor < 1 or args.end_actor > 24 or args.start_actor > args.end_actor:
+        print("--start-actor/--end-actor must describe an actor range within 1-24", file=sys.stderr)
+        return 2
+    if args.limit is not None and args.limit < 1:
+        print("--limit must be >= 1", file=sys.stderr)
+        return 2
+    if args.skip_first < 0:
+        print("--skip-first must be >= 0", file=sys.stderr)
+        return 2
+    if args.file_list is not None and not args.file_list.exists():
+        print(f"--file-list does not exist: {args.file_list}", file=sys.stderr)
+        return 2
+    return 0
+
+
+def main() -> int:
     """Run raw facial-tracking extraction."""
-    configure_logging(LOG_FILE)
+    args = parse_args()
+    validation_status = validate_args(args)
+    if validation_status:
+        return validation_status
 
-    print(f"Writing log to: {LOG_FILE}")
+    args.input_root = args.input_root.resolve()
+    args.raw_output_root = args.raw_output_root.resolve()
+    output_root = args.raw_output_root.parent
+    if args.report is None:
+        args.report = output_root / "logs" / "1_extract_raw_tracking_report.csv"
+    else:
+        args.report = args.report.resolve()
+    if args.log_file is None:
+        args.log_file = output_root / "logs" / "1_extract_raw_tracking.log"
+    else:
+        args.log_file = args.log_file.resolve()
+
+    configure_logging(args.log_file)
+
+    print(f"Writing log to: {args.log_file}")
 
     logging.info("Starting Py-Feat RAVDESS raw tracking extraction.")
     logging.info("PROJECT_ROOT: %s", PROJECT_ROOT)
-    logging.info("RAVDESS_INPUT_DIR: %s", RAVDESS_INPUT_DIR)
-    logging.info("RAW_MOTION_DIR: %s", RAW_MOTION_DIR)
-    logging.info("LOG_FILE: %s", LOG_FILE)
-    logging.info("Actors: %02d-%02d", START_ACTOR, END_ACTOR)
-    logging.info("DEVICE: %s", DEVICE)
+    logging.info("RAVDESS_INPUT_DIR: %s", args.input_root)
+    logging.info("RAW_MOTION_DIR: %s", args.raw_output_root)
+    logging.info("LOG_FILE: %s", args.log_file)
+    logging.info("REPORT: %s", args.report)
+    logging.info("Actors: %02d-%02d", args.start_actor, args.end_actor)
+    logging.info("Selected actors: %s", args.actor or "all")
+    logging.info("Selected vocal channel: %s", args.vocal_channel)
+    logging.info("DEVICE: %s", args.device)
+    logging.info("Batch size: %d", args.batch_size)
+    logging.info("File-level workers: %d", args.workers)
+    logging.info("Py-Feat num_workers: %d", args.pyfeat_num_workers)
+    logging.info("Skip existing: %s", not args.overwrite)
 
-    detector = create_detector()
-    tasks = build_tasks()
+    filters = TaskFilters(
+        start_actor=args.start_actor,
+        end_actor=args.end_actor,
+        actors=tuple(sorted(set(args.actor))),
+        vocal_channel=args.vocal_channel,
+        stems=tuple(args.stem),
+        file_list=args.file_list,
+        limit=args.limit,
+        first=args.first,
+    )
+    tasks = build_tasks(filters, args.input_root, args.raw_output_root)
+    if args.skip_first:
+        tasks = tasks[args.skip_first :]
+        logging.info("Skipped first %d selected task(s).", args.skip_first)
 
     if not tasks:
         logging.warning(
@@ -328,20 +725,83 @@ def main() -> None:
         print(
             "No detection tasks were prepared. Check RAVDESS_INPUT_DIR and filenames."
         )
-        return
+        return 1
+
+    if args.dry_run:
+        write_task_report(args.report, tasks, args.batch_size)
+        logging.info("Dry run complete. Prepared %d task(s).", len(tasks))
+        print(f"Dry run complete. Prepared {len(tasks)} task(s).")
+        print(f"Task report: {args.report}")
+        return 0
+
+    ffmpeg_bin = resolve_ffmpeg_bin(args.ffmpeg_bin)
+    ffmpeg_bin_value = str(ffmpeg_bin) if ffmpeg_bin is not None else None
+    logging.info("FFmpeg shared bin: %s", ffmpeg_bin or "not resolved")
+    if ffmpeg_bin is not None:
+        print(f"FFmpeg DLLs: {ffmpeg_bin}")
 
     logging.info("Starting detection loop for %d task(s).", len(tasks))
     print(f"Starting detection loop for {len(tasks)} task(s).")
 
-    for index, task in enumerate(tasks, start=1):
-        logging.info("Processing task %d/%d: %s", index, len(tasks), task.video_path)
-        print(f"[{index}/{len(tasks)}] {task.video_path}")
-        run_detection(detector, task)
+    config = RunConfig(
+        device=args.device,
+        batch_size=args.batch_size,
+        num_workers=args.pyfeat_num_workers,
+        pin_memory=PIN_MEMORY,
+        skip_existing=not args.overwrite,
+        face_detection_threshold=FACE_DETECTION_THRESHOLD,
+        face_identity_threshold=FACE_IDENTITY_THRESHOLD,
+        log_file=args.log_file,
+        ffmpeg_bin=ffmpeg_bin_value,
+    )
 
-    logging.info("Raw tracking extraction complete.")
+    results: list[TaskResult] = []
+    if args.workers == 1:
+        configure_ffmpeg_dlls(config.ffmpeg_bin)
+        detector = create_detector(config.device)
+        for index, task in enumerate(tasks, start=1):
+            logging.info("Processing task %d/%d: %s", index, len(tasks), task.video_path)
+            print(f"[{index}/{len(tasks)}] {task.video_path}")
+            results.append(
+                run_detection(
+                    detector,
+                    task,
+                    config,
+                    worker_id=1,
+                    task_index=index,
+                    task_count=len(tasks),
+                )
+            )
+            write_run_report(args.report, results)
+    else:
+        shards = split_evenly(tasks, args.workers)
+        with ProcessPoolExecutor(max_workers=len(shards)) as executor:
+            futures = [
+                executor.submit(run_task_shard, worker_id, shard, config)
+                for worker_id, shard in enumerate(shards, start=1)
+            ]
+            for future in as_completed(futures):
+                results.extend(future.result())
+                results.sort(key=lambda row: str(row.csv_path))
+                write_run_report(args.report, results)
+                print(f"Completed {len(results)}/{len(tasks)} task result(s).")
+
+    results.sort(key=lambda row: str(row.csv_path))
+    write_run_report(args.report, results)
+
+    status_counts: dict[str, int] = {}
+    for result in results:
+        status_counts[result.status] = status_counts.get(result.status, 0) + 1
+
+    logging.info("Raw tracking extraction complete. Status counts: %s", status_counts)
     print("Raw tracking extraction complete.")
+    print(f"Result report: {args.report}")
+    for status, count in sorted(status_counts.items()):
+        print(f"  {status}: {count}")
+
+    return 1 if any(result.status == "error" for result in results) else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
 

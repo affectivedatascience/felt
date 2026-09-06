@@ -1,0 +1,78 @@
+path,item_type,recursive,file_count,bytes,action,category,reason,condition_or_destination
+01_data/02_output/logs/1_extract_raw_tracking.log,file,false,1,94915,keep,canonical_provenance,Numbered Detectorv2 extraction log,Retain in place
+01_data/02_output/logs/2_fill_missing_values.log,file,false,1,2402,keep,canonical_provenance,Numbered approved correction log,Retain in place
+01_data/02_output/logs/3_clean_signals.log,file,false,1,567112,keep,canonical_provenance,Numbered official smoothing log,Retain in place
+01_data/02_output/logs/challis_cutoff_estimation.log,file,false,1,282508,keep,calibration_provenance,Full-corpus cutoff estimation log supporting the approved profile,Retain in place
+01_data/02_output/logs/challis_smoothing_full_apply_smoke.log,file,false,1,1169,archive,experiment,Full-apply smoothing smoke log,Archive under 01_data/03_archive/logs/smoothing_smokes/
+01_data/02_output/logs/challis_smoothing_optional_apply_smoke.log,file,false,1,1192,archive,experiment,Optional-feature smoothing smoke log,Archive under 01_data/03_archive/logs/smoothing_smokes/
+01_data/02_output/logs/challis_smoothing_optional_smoke.log,file,false,1,4631,archive,experiment,Optional-feature calibration smoke log,Archive under 01_data/03_archive/logs/smoothing_smokes/
+01_data/02_output/logs/challis_smoothing_parallel_smoke.log,file,false,1,1394,archive,experiment,Parallel smoothing smoke log,Archive under 01_data/03_archive/logs/smoothing_smokes/
+01_data/02_output/logs/challis_smoothing_smoke_apply.log,file,false,1,5856,archive,experiment,Smoothing smoke-application log,Archive under 01_data/03_archive/logs/smoothing_smokes/
+01_data/02_output/logs/challis_smoothing_smoke.log,file,false,1,6701,archive,experiment,Smoothing calibration smoke log,Archive under 01_data/03_archive/logs/smoothing_smokes/
+01_data/02_output/logs/pyfeat_v2_actor01_dry_run.csv,file,false,1,1423,archive,experiment,Actor-01 extraction dry-run report,Archive under 01_data/03_archive/logs/actor01_extraction/
+01_data/02_output/logs/pyfeat_v2_actor01_extraction.csv,file,false,1,1388,archive,experiment,Actor-01 extraction subset report,Archive under 01_data/03_archive/logs/actor01_extraction/
+01_data/02_output/logs/pyfeat_v2_actor01_missing_qc.log,file,false,1,186,archive,experiment,Actor-01 missing-value QC log,Archive under 01_data/03_archive/logs/actor01_extraction/
+01_data/02_output/logs/pyfeat_v2_full_dry_run.csv,file,false,1,487362,archive,operational_intermediate,Pre-run task inventory superseded by final extraction report,Archive under 01_data/03_archive/logs/full_extraction_operational/
+01_data/02_output/logs/pyfeat_v2_full_extraction_report.csv,file,false,1,515327,keep,canonical_provenance,Final full-corpus extraction report,Retain in place
+01_data/02_output/logs/pyfeat_v2_full_progress_latest.json,file,false,1,295,archive,operational_intermediate,Transient progress snapshot superseded by final report,Archive under 01_data/03_archive/logs/full_extraction_operational/
+01_data/02_output/logs/pyfeat_v2_full_progress.csv,file,false,1,1482,archive,operational_intermediate,Transient progress history superseded by final report,Archive under 01_data/03_archive/logs/full_extraction_operational/
+01_data/02_output/logs/pyfeat_v2_full_shard1_console.log,file,false,1,15407567,archive,operational_intermediate,Large captured console stream; structured shard report and application log are retained,Archive under 01_data/03_archive/logs/full_extraction_console/
+01_data/02_output/logs/pyfeat_v2_full_shard1_report.csv,file,false,1,159995,keep,canonical_provenance,Structured production extraction results for shard 1,Retain in place
+01_data/02_output/logs/pyfeat_v2_full_shard1.log,file,false,1,11260238,keep,canonical_provenance,Production application log for extraction shard 1,Retain in place
+01_data/02_output/logs/pyfeat_v2_full_shard2_console.log,file,false,1,14986954,archive,operational_intermediate,Large captured console stream; structured shard report and application log are retained,Archive under 01_data/03_archive/logs/full_extraction_console/
+01_data/02_output/logs/pyfeat_v2_full_shard2_report.csv,file,false,1,159874,keep,canonical_provenance,Structured production extraction results for shard 2,Retain in place
+01_data/02_output/logs/pyfeat_v2_full_shard2.log,file,false,1,10904831,keep,canonical_provenance,Production application log for extraction shard 2,Retain in place
+01_data/02_output/logs/pyfeat_v2_full_shard3_console.log,file,false,1,14898579,archive,operational_intermediate,Large captured console stream; structured shard report and application log are retained,Archive under 01_data/03_archive/logs/full_extraction_console/
+01_data/02_output/logs/pyfeat_v2_full_shard3_report.csv,file,false,1,151490,keep,canonical_provenance,Structured production extraction results for shard 3,Retain in place
+01_data/02_output/logs/pyfeat_v2_full_shard3.log,file,false,1,10837665,keep,canonical_provenance,Production application log for extraction shard 3,Retain in place
+01_data/02_output/migration_smoke/challis_blendshape_smoothed,directory,true,1,3669241,archive,experiment,Blendshape-smoothing migration smoke output,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/migration_smoke/challis_full_master_smoothed,directory,true,1,3685229,archive,experiment,Full-master smoothing migration smoke output,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/migration_smoke/challis_smoothed,directory,true,1,3624866,archive,experiment,Early Challis smoothing migration smoke output,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/migration_smoke/overlay,directory,true,1,270874,archive,experiment,Migration overlay smoke output,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/migration_smoke/overlay_streamed,directory,true,1,270874,archive,experiment,Streamed-overlay migration smoke output,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/migration_smoke/qc,directory,true,8,1425,archive,experiment,QC reports for migration smoke data,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/migration_smoke/raw,directory,true,1,2281560,archive,experiment,Raw Detectorv2 migration smoke output,Archive under 01_data/03_archive/migration_smoke/
+01_data/02_output/plots/01-02-01-01-01-01-01-canonical-au-mesh.mp4,file,false,1,1395739,archive,visualization_experiment,Single-trial AU-mesh development render,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/au_timeseries_Actor_01_01-01-01-01-01-01-01.png,file,false,1,388121,archive,visualization_experiment,Exploratory AU time-series plot,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_sequence_au_actor01.html,file,false,1,10431179,archive,visualization_experiment,Interactive actor-01 AU sequence prototype,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_sequence_detected_actor01_tesselation.html,file,false,1,21151933,archive,visualization_experiment,Interactive detected-mesh tessellation prototype,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_sequence_detected_actor01.html,file,false,1,5729944,archive,visualization_experiment,Interactive detected-mesh prototype,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_visualization_set_actor01,directory,true,8,36836572,archive,visualization_experiment,Early actor-01 visualization set containing noncanonical products,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_visualization_set_actor01_mesh_only,directory,true,2,550258,archive,visualization_experiment,Mesh-only actor-01 experiment,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_visualization_set_actor01_no_gaze,directory,true,1,380383,archive,visualization_experiment,No-gaze actor-01 experiment,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/felt_visualization_set_actor01_organized,directory,true,6,3308271,archive,visualization_experiment,Six-view organization prototype predating the canonical seven-view set,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/outline_smoke,directory,true,4,385545,archive,visualization_experiment,Outline-rendering smoke previews,Archive under 01_data/03_archive/plots/
+01_data/02_output/plots/visualization_set_smoke,directory,true,12,2297048,archive,visualization_experiment,Visualization-set smoke outputs and previews,Archive under 01_data/03_archive/plots/
+01_data/02_output/qc/input_all_frame_counts.csv,file,false,1,127166,keep,supporting_qc,Decoded/metadata source frame-count inventory supporting extraction QC,Retain in place
+01_data/02_output/qc/ravdess_input_manifest.csv,file,false,1,295749,keep,release_qc,Canonical restored-input inventory,Retain in place
+01_data/02_output/qc/ravdess_input_summary.json,file,false,1,571,keep,release_gate,Required by stage 5 packaging,Retain in place
+01_data/02_output/qc/source_reference_normalization.csv,file,false,1,1110905,keep,migration_provenance,Audit proving byte-limited normalization of source references,Retain in place
+01_data/02_output/qc/visualization_outputs.csv,file,false,1,4673586,keep,release_qc,Full decoded-video QC report for all canonical products,Retain in place
+01_data/02_output/qc/visualization_outputs_summary.json,file,false,1,507,keep,release_gate,Required by stage 5 packaging,Retain in place
+01_data/02_output/qc/missing_value_correction_audit.csv,expected_file,false,0,0,keep,canonical_missing,Expected correction audit is currently absent and should be regenerated,Generate with stage 2 before any cleanup; retain in place
+01_data/02_output/qc/pyfeat_v2_full,directory,true,11,1623076,keep,canonical_pre_correction_qc,Immutable pre-correction extraction evidence including the approved exception,Retain in place
+01_data/02_output/qc/pyfeat_v2_post_correction,directory,true,9,885218,keep,release_gate,Accepted corrected Detectorv2 QC; qc_summary.json is required by stage 5,Retain in place
+01_data/02_output/qc/pyfeat_v2_actor01,directory,true,11,260057,archive,experiment,Actor-01 extraction and overlay QC subset,Archive under 01_data/03_archive/qc/
+01_data/02_output/qc/pyfeat_v2_script_smoke,directory,true,9,3971,archive,experiment,Single-script extraction QC smoke output,Archive under 01_data/03_archive/qc/
+01_data/02_output/qc/challis_smoothing_full_apply_smoke,directory,true,9,209242,archive,experiment,Full-apply smoothing smoke QC,Archive under 01_data/03_archive/qc/smoothing_smokes/
+01_data/02_output/qc/challis_smoothing_optional_apply_smoke,directory,true,7,65367,archive,experiment,Optional-feature smoothing apply smoke QC,Archive under 01_data/03_archive/qc/smoothing_smokes/
+01_data/02_output/qc/challis_smoothing_optional_smoke,directory,true,18,663517,archive,experiment,Optional-feature smoothing calibration smoke QC,Archive under 01_data/03_archive/qc/smoothing_smokes/
+01_data/02_output/qc/challis_smoothing_parallel_smoke,directory,true,9,89431,archive,experiment,Parallel smoothing smoke QC,Archive under 01_data/03_archive/qc/smoothing_smokes/
+01_data/02_output/qc/challis_smoothing_smoke,directory,true,19,293420,archive,experiment,General smoothing smoke QC,Archive under 01_data/03_archive/qc/smoothing_smokes/
+01_data/02_output/qc/challis_smoothing/benchmark.json,file,false,1,934,archive,experiment,Development performance benchmark rather than scientific acceptance evidence,Archive under 01_data/03_archive/qc/challis_smoothing/
+01_data/02_output/qc/challis_smoothing/checkpoints,directory,true,2452,55241476,delete,reproducible_cache,Per-trial cutoff-estimation checkpoints superseded by merged estimates and summaries,Delete only after archive hashes and retained merged outputs are verified
+01_data/02_output/qc/challis_smoothing/clipping_by_file_column.csv,file,false,1,33854729,keep,canonical_smoothing_qc,Detailed clipping audit by trial and column,Retain in place
+01_data/02_output/qc/challis_smoothing/clipping_stratified_summary.csv,file,false,1,6614,keep,canonical_smoothing_qc,Stratified clipping summary for methods and limitations reporting,Retain in place
+01_data/02_output/qc/challis_smoothing/clipping_summary.csv,file,false,1,8975,keep,canonical_smoothing_qc,Aggregate clipping summary,Retain in place
+01_data/02_output/qc/challis_smoothing/column_cutoff_estimates.csv.gz,file,false,1,54334015,keep,calibration_provenance,Merged column-level cutoff estimates from the full corpus,Retain in place
+01_data/02_output/qc/challis_smoothing/cutoff_stratified_summary.csv,file,false,1,256344,keep,calibration_provenance,Stratified cutoff-estimation summary,Retain in place
+01_data/02_output/qc/challis_smoothing/cutoff_summary.csv,file,false,1,5826,keep,calibration_provenance,Aggregate cutoff-estimation summary,Retain in place
+01_data/02_output/qc/challis_smoothing/estimation_errors.csv,file,false,1,60,keep,calibration_provenance,Error ledger demonstrating calibration completion,Retain in place
+01_data/02_output/qc/challis_smoothing/invalid_estimates.csv,file,false,1,6340588,keep,calibration_provenance,Audit of excluded or invalid per-column estimates,Retain in place
+01_data/02_output/qc/challis_smoothing/master_cutoffs.json,file,false,1,17067,keep,calibration_provenance,Generated calibration artifact corresponding to the tracked approved profile,Retain in place; 02_code/config/master_cutoffs_v2.json remains authoritative
+01_data/02_output/qc/challis_smoothing/plots,directory,true,4,333987,keep,canonical_smoothing_qc,Calibration diagnostic plots useful for the paper and visual QC,Retain in place
+01_data/02_output/qc/challis_smoothing/smoothing_checkpoints,directory,true,2452,152323041,delete,reproducible_cache,Per-trial smoothing resume caches superseded by final CSVs and run validation,Delete only after final smoothed inventory and protected archive hashes are verified
+01_data/02_output/qc/challis_smoothing/smoothing_errors.csv,file,false,1,72,keep,release_qc,Canonical smoothing failure ledger,Retain in place
+01_data/02_output/qc/challis_smoothing/smoothing_run_manifest.json,file,false,1,999,keep,release_gate,Required by stage 5 packaging and identifies the approved configuration,Retain in place
+01_data/02_output/qc/challis_smoothing/smoothing_validation.csv,file,false,1,6097852,keep,canonical_smoothing_qc,Per-file smoothing validation results,Retain in place
+01_data/02_output/qc/challis_smoothing/video_cutoff_estimates.csv,file,false,1,25692288,keep,calibration_provenance,Per-video cutoff estimates supporting master cutoff selection,Retain in place
